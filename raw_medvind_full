@@ -1,0 +1,23 @@
+{{ config(materialized='table') }}
+select 
+METADATA$FILENAME
+,SYSDATE() as __META_TIMESTAMP
+,SUBSTR(METADATA$FILE_LAST_MODIFIED,1,7) AS __META_LAST_MODIFIED
+,substr(METADATA$FILENAME,30,18) AS __META_FILE_NAME
+,to_date(right(left(METADATA$FILENAME,47),6),'YYYYMM') as __META_PARTITION_DATE
+,$1 AS "Datum"
+,$2 AS "Kst"
+,$3 AS "Order"
+,$4 AS "Ordertext"
+,$5 AS "Timmar"
+,$6 AS "Personalkatekori"
+,$7 AS "Planeringsgrupp"
+,$8 AS "N/F"
+,$9 AS "Orsak"
+,$10 AS "Planerade_Timmar"
+,$11 AS "Konto"
+,$12 As "PERSOID"
+FROM @HQV_MISC.MISC.AZURE_STAGE_ESB_V2_PROD/Manufacturing/Medvind_sweden/
+(file_format => hqv_misc.misc.hqv_medvind_csv)
+QUALIFY 1 = ROW_NUMBER() OVER (PARTITION BY "Datum","Kst","Order" ,"Ordertext","Timmar","Personalkatekori","Planeringsgrupp","N/F","Orsak","Planerade_Timmar","Konto","PERSOID" order by "Datum" desc) 
+
