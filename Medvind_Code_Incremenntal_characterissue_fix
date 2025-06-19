@@ -1,0 +1,37 @@
+{{ config(materialized='table') }}
+select 
+METADATA$FILENAME
+,SYSDATE() as __META_TIMESTAMP
+,SUBSTR(METADATA$FILE_LAST_MODIFIED,1,7) AS __META_LAST_MODIFIED
+,substr(METADATA$FILENAME,30,18) AS __META_FILE_NAME
+,to_date(right(left(METADATA$FILENAME,47),6),'YYYYMM') as __META_PARTITION_DATE
+,$1 AS "Datum"
+,$2 AS "Kst"
+,$3 AS "Order"
+,$4 AS "Ordertext"
+,$5 AS "Timmar"
+,$6 AS "Personalkatekori"
+,$7 AS "Planeringsgrupp_src"
+,--CASE WHEN $7 like '%Ã¥%' then replace($7,'Ã¥','å') else 
+--case WHEN $7 like '%Ã€%' then  replace($7,'Ã€','ä') else
+case WHEN $7 like '%Ã¶%' then  replace(replace(replace($7,'Ã¶','ö'),'Ã€', 'ä'),'Ã¥','å') else 
+case WHEN $7 like '%Ã¥%' then replace(replace(replace($7,'Ã¥','å'), 'Ã¶', 'ö'),'Ã€','ä') else
+case WHEN $7 like '%Ã€%' then replace(replace(replace($7,'Ã€','ä'), 'Ã¶', 'ö'),'Ã¥','å') else
+case when $7 like '%Ã%' then replace(replace($7,'Ã','Ö'), 'Ã¶', 'ö')
+else $7 end end  end end  as "Planeringsgrupp"
+,$8 AS "N/F"
+,$9 AS "Orsak_src"
+/*,CASE WHEN $9 like '%Ã¥%' then replace($9,'Ã¥','å') else 
+case WHEN $9 like '%Ã¶%' then  replace($9,'Ã¶','ö') else 
+case WHEN $9 like '%Ã€%' then  replace($9,'Ã€','ä') else $9 end end end as "Orsak" */
+,case WHEN $9 like '%Ã¥%' then replace(replace(replace($9,'Ã¥','å'), 'Ã¶', 'ö'),'Ã€','ä') else
+case WHEN $9 like '%Ã¶%' then  replace(replace(replace($9,'Ã¶','ö'),'Ã€', 'ä'),'Ã¥','å') else 
+case WHEN $9 like '%Ã€%' then replace(replace(replace($9,'Ã€','ä'), 'Ã¶', 'ö'),'Ã¥','å') 
+else $9 end end end as "Orsak"
+,$10 AS "Planerade_Timmar"
+,$11 AS "Konto"
+,$12 As "PERSOID"
+FROM @HQV_MISC.MISC.AZURE_STAGE_ESB_V2_PROD/Manufacturing/Medvind_sweden/
+(file_format => hqv_misc.misc.hqv_medvind_csv, 
+pattern => '.*MvDataLager_{{fnDateYearMonthNBackMedvind(0)}}_.*.csv|.*MvDataLager_{{fnDateYearMonthNBackMedvind(1)}}_.*.csv')
+
