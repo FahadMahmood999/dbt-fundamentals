@@ -1,0 +1,10 @@
+{{ config(materialized='table', tags =['TIA','tia']) }}
+
+select 
+'TIA_RoW' as SRC_SYS_NAME,
+METADATA$FILENAME AS SrcFileName,
+METADATA$FILE_LAST_MODIFIED as LAST_MODIFIED,
+$1 as ORIG_STRING,
+current_timestamp() as Loadtime
+FROM @HQV_MISC.MISC.AZURE_STAGE_DF_MANUFACTURING_{{fnGetEnvironmentName()}}/tia_export_api/tia_row/rest_response_row
+(file_format => hqv_misc.misc.hqv_json_generic)
