@@ -1,0 +1,10 @@
+list @HQV_MISC.MISC.AZURE_STAGE_ESB_V2_PROD/Manufacturing/Medvind_sweden/;
+--From August we are not seeing 2 files coming previous month and current month only current month file is coming---
+select  distinct 
+METADATA$FILENAME
+FROM @HQV_MISC.MISC.AZURE_STAGE_ESB_V2_PROD/Manufacturing/Medvind_sweden/
+(file_format => hqv_misc.misc.hqv_medvind_csv) 
+order by METADATA$FILENAME ;
+where METADATA$FILENAME LIKE '%20240918%';        --20240821
+--Manufacturing/Medvind_sweden/MvDataLager_2024008_20240801_050032.csv
+--'%MvDataLager_202408_20240805%';
