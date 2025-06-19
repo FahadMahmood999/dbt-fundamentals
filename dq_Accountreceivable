@@ -1,0 +1,96 @@
+{{ config(tags=["VAT"]) }}
+
+select distinct
+ 'SAPGFT' as SRC_SYS_NAME
+,bkpf.SrcFileName
+,bkpf.WAERS AS Currency_code
+,bkpf.BLART AS Doc_Type
+,TRY_TO_DATE(bkpf.BUDAT,'YYYYMMDD') AS Posting_date
+,cast(bkpf.MONAT as NUMERIC(2)) AS Posting_period
+,bkpf.XBLNR AS Reference
+--,bseg.HKONT AS Account
+,COALESCE(TRY_TO_DECIMAL(bseg.HKONT),0) AS Account
+,CASE WHEN bseg.AUGDT='00000000' then '' else bseg.AUGDT end as Betalningsdatum_inkommande
+,bus_area_bseg.GSBER AS Business_area
+,bseg.BUKRS AS Company_code
+,bseg.KOSTL AS Cost_Center
+,bseg.ZUONR AS Assignment
+,countries.Countrycodes3 AS Country_Code
+--,bseg.KUNNR AS Customerno
+,COALESCE(TRY_TO_DECIMAL(bseg.KUNNR),0) AS Customerno
+,bseg.XREF3 AS Destination_Country_Code
+,CASE WHEN regexp_count(bseg.DMBTR,'-') > 0 THEN (cast(regexp_replace(bseg.DMBTR,'-') AS decimal(13,2)) * -1)
+--ELSE cast(bseg.DMBTR AS decimal(13,2))
+ELSE cast(replace(bseg.DMBTR,'*') AS decimal(13,2))
+END AS Gross_amount_SEK_invoice
+,CASE WHEN regexp_count(bseg.WRBTR,'-') > 0 THEN (cast(regexp_replace(bseg.WRBTR,'-') AS decimal(13,2)) * -1)
+--ELSE cast(bseg.WRBTR AS decimal(13,2))
+ELSE cast(replace(bseg.WRBTR,'*') AS decimal(13,2))
+END AS Grossamount
+,bseg.AUGBL AS Invoice_payed_date
+,bseg.PRCTR AS Profit_Center
+,bseg.LANDL AS Ship_from_country 
+--,bseg.XREF3 AS Ship_to_country
+,CASE WHEN LENGTH(TRIM(bseg.XREF3))>2 OR bseg.XREF3 ILIKE '%''%'  THEN ''' ''' 
+ELSE bseg.XREF3 END AS Ship_to_country  -- changes for not onsidering ship to where length of character is more than 2
+--,bset.BELNR AS Document_no_Invoice_no
+,COALESCE(TRY_TO_DECIMAL(bseg.BELNR),0) AS Document_no_Invoice_no
+,bset.FWBAS AS Netamount
+,CASE WHEN regexp_count(bset.HWBAS,'-') > 0 THEN (cast(regexp_replace(bset.HWBAS,'-') AS decimal(15,2)) * -1)
+ELSE cast(bset.HWBAS AS decimal(15,2))
+END AS Netamount_invoice_SEK
+,bset.MWSKZ AS Tax_Code
+,CASE WHEN regexp_count(bset.HWSTE,'-') > 0 THEN (cast(regexp_replace(bset.HWSTE,'-') AS decimal(13,2)) * -1)
+ELSE cast(bset.HWSTE AS decimal(13,2))
+END AS VAT_amount_SEK
+,bset.MWSKZ AS VAT_Code
+/* ,CASE WHEN regexp_count(bset.KBETR,'-') > 0 THEN (cast(regexp_replace(bset.KBETR,'-') AS decimal(11,2)) * -1)
+ELSE cast(bset.KBETR AS decimal(11,2))
+END AS VAT_rate */
+,CASE WHEN regexp_count(bset.KBETR,'-') > 0 THEN cast(regexp_replace(bset.KBETR,'-') * -1/10 AS decimal(11,2))
+ELSE cast(bset.KBETR/10 AS decimal(11,2))
+END AS VAT_rate    -- Added logic to divide the value with 10 for calculating VAT rate
+,kna1.STCEG AS VAT_Registration_Number
+,kna1.LAND1 AS Country
+,kna1.NAME1 AS Customername
+,ekpo.LGORT AS Storage_Location
+,current_timestamp() as loadtime
+,current_timestamp() as effective_from
+,null as effective_to
+,'Y' as is_current
+FROM (select bset_tax.* from {{ ref('raw_sap_gft_bset_tax_document_segment') }} bset_tax
+INNER JOIN {{ ref('raw_sap_gft_ctl_tax_code') }}  ctl_tax --Adding control table and put tax code for AR to avoid hardcoding
+ON rtrim(ltrim(bset_tax.MWSKZ)) = rtrim(ltrim(ctl_tax.TAX_CODE))
+AND ctl_tax.ENTITY_NAME='AR'
+) 
+bset
+-- Filtering AR related Tax Codes in the above line from Control table 
+LEFT JOIN {{ ref('raw_sap_gft_bseg_accounting_document_segment') }} bseg 
+ON 
+                                        bset.BUKRS = bseg.BUKRS AND
+                                        bset.BELNR = bseg.BELNR AND
+                                        bset.GJAHR = bseg.GJAHR AND
+                                        bset.BUZEI = bseg.BUZEI AND
+                                        bseg.BSCHL IN ('01','11') 
+LEFT JOIN {{ ref('raw_sap_gft_ekpo_purchasing_document_item') }} ekpo ON
+                                        bseg.EBELN = ekpo.EBELN AND
+                                       bseg.EBELP = ekpo.EBELP
+LEFT JOIN {{ ref('dq_global_finance_countries') }} countries on 
+              bseg.LANDL = countries.CountryISOCode
+--Added above line to restrict bseg table based on BSCHL(PK) 01 and 11 for credit memo to bring correct and Ship to country which was coming number for few cases.
+LEFT JOIN  (select bkpf_doc.* from {{ ref('raw_sap_gft_bkpf_accounting_document_header') }} bkpf_doc
+INNER JOIN {{ ref('raw_sap_gft_ctl_document_type') }} ctl_doc  --Adding control table and put doc type for AR to avoind hardcoding
+ON rtrim(ltrim(bkpf_doc.BLART)) = rtrim(ltrim(ctl_doc.DOC_TYPE))
+AND ctl_doc.ENTITY_NAME='AR'  
+)
+bkpf          
+ON                                      bkpf.BUKRS = bseg.BUKRS AND
+                                        bkpf.BELNR = bseg.BELNR AND
+                                        bkpf.GJAHR = bseg.GJAHR AND
+                                        bseg.BUZEI = bset.BUZEI
+LEFT JOIN {{ ref('raw_sap_gft_kna1_customer_master') }} kna1 
+ON 
+                                        bseg.KUNNR = kna1.KUNNR
+LEFT JOIN (select distinct BELNR, GSBER from {{ ref('raw_sap_gft_bseg_accounting_document_segment') }}
+    where GSBER <> '\' \'')  bus_area_bseg     -- --Added changes to get the business area which are not blank ' ' based on Document number level not at line item level from bseg table
+    on bset.BELNR=bus_area_bseg.BELNR
