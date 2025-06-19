@@ -1,0 +1,119 @@
+{{ config(materialized='incremental',tags=["VAT"]) }}
+	 
+
+	 
+{%  if is_incremental() %}
+
+with CTE_RAW AS (
+    SELECT
+    'SAPGFT' as SRC_SYS_NAME	
+    ,METADATA$FILENAME AS SrcFileName
+    ,SPLIT_PART(METADATA$FILENAME,'/',-1)||'~'||METADATA$FILE_LAST_MODIFIED AS UniqueFileID	
+    ,hash($3,$13,$14,$15) as _dbt_unique_key
+    ,row_number() over (partition by hash($3,$13,$14,$15) order by hash($3,$13,$14,$15))  as _dbt_version_no
+    ,$1 as AUGBL
+    ,$2 as AUGDT
+    ,$3 as BUKRS
+    ,$4 as DMBTR
+    ,$5 as GSBER
+    ,$6 as HKONT
+    ,$7 as KOSTL
+    ,$8 as KUNNR
+    ,$9 as LANDL
+    ,$10 as PRCTR
+    ,$11 as WRBTR
+    ,$12 as XREF3
+    ,$13 as BELNR
+    ,$14 as GJAHR
+    ,$15 as BUZEI
+    ,$16 as AUGCP
+    ,$17 as KOART
+    ,$18 as SHKZG
+    ,$19 as MWART
+    ,$20 as MATNR
+    ,$21 as WERKS
+    ,$22 as MENGE
+    ,$23 as MEINS
+    ,$24 as EBELN
+    ,$25 as EBELP
+    ,$26 as STCEG
+    ,$27 as AUFNR
+    ,$28 as VBELN
+    ,$29 as LIFNR
+    ,$30 as BSCHL
+    ,$31 as BUZID
+    ,$32 as ZUONR
+    ,hash(concat(nvl(BUKRS,' '),nvl(BELNR,' '),nvl(GJAHR,' '),nvl(BUZEI,' '))) as PKHASHKEY
+    ,current_timestamp() as Loadtime
+
+from @HQV_MISC.MISC.AZURE_STAGE_ESB_{{fnEnvironmentNameESB()}}/SAP/FDW/GFT/GL/
+(file_format => 'HQV_MISC.MISC.PRO_FINANCE_CSV', pattern => '.*BSEG_{{fnDateYearMonthDayNDaysBackYYYYMMDD(0)}}.*.csv|.*BSEG_{{fnDateYearMonthDayNDaysBackYYYYMMDD(1)}}.*.csv|.*BSEG_{{fnDateYearMonthDayNDaysBackYYYYMMDD(2)}}.*.csv')	    
+
+)
+
+    , inc as 
+    (select cte_raw.* from cte_raw
+    left join (select this.UniqueFileID from {{this}} this ) this 
+    on cte_raw.UniqueFileID=this.UniqueFileID 
+    where this.UniqueFileID is null )
+    
+    select inc.* from inc 
+    left join {{this}} as this 
+    on inc._dbt_unique_key=this._dbt_unique_key
+    where  this._dbt_unique_key is null and inc._dbt_version_no=1
+
+   
+{%  else  %}
+
+with CTE_RAW AS (
+    SELECT
+    'SAPGFT' as SRC_SYS_NAME	
+    ,METADATA$FILENAME AS SrcFileName
+    ,SPLIT_PART(METADATA$FILENAME,'/',-1)||'~'||METADATA$FILE_LAST_MODIFIED AS UniqueFileID	
+    ,hash($3,$13,$14,$15) as _dbt_unique_key
+    ,row_number() over (partition by hash($3,$13,$14,$15) order by hash($3,$13,$14,$15))  as _dbt_version_no
+    ,$1 as AUGBL
+    ,$2 as AUGDT
+    ,$3 as BUKRS
+    ,$4 as DMBTR
+    ,$5 as GSBER
+    ,$6 as HKONT
+    ,$7 as KOSTL
+    ,$8 as KUNNR
+    ,$9 as LANDL
+    ,$10 as PRCTR
+    ,$11 as WRBTR
+    ,$12 as XREF3
+    ,$13 as BELNR
+    ,$14 as GJAHR
+    ,$15 as BUZEI
+    ,$16 as AUGCP
+    ,$17 as KOART
+    ,$18 as SHKZG
+    ,$19 as MWART
+    ,$20 as MATNR
+    ,$21 as WERKS
+    ,$22 as MENGE
+    ,$23 as MEINS
+    ,$24 as EBELN
+    ,$25 as EBELP
+    ,$26 as STCEG
+    ,$27 as AUFNR
+    ,$28 as VBELN
+    ,$29 as LIFNR
+    ,$30 as BSCHL
+    ,$31 as BUZID
+    ,$32 as ZUONR
+    ,hash(concat(nvl(BUKRS,' '),nvl(BELNR,' '),nvl(GJAHR,' '),nvl(BUZEI,' '))) as PKHASHKEY
+    ,current_timestamp() as Loadtime
+
+from @HQV_MISC.MISC.AZURE_STAGE_ESB_{{fnEnvironmentNameESB()}}/SAP/FDW/GFT/GL/BSEG
+(file_format => 'HQV_MISC.MISC.PRO_FINANCE_CSV')	    
+
+)
+
+
+    select * from cte_raw 
+    where _dbt_version_no=1
+ 
+{%  endif %}	
