@@ -1,0 +1,623 @@
+{{ config(
+    materialized='incremental',
+    pre_hook=[createdellog(this)],
+    post_hook=[updatedellog(this)], tags =['TIA','tia']
+) }}
+
+
+
+/*Use separate CTEs (WITH clauses) to flatten each nested array (occurrence, followUp, actions,organization,investigation ,objectInvolved,Injurybodypart and Injurtype)
+Perform LEFT JOINs on main_id to join the results back together.This query preserves the 
+hierarchical relationship and returns complete data for all nested arrays and fields. Added by Fahad*/
+
+with cte_final as (
+
+
+WITH CTE_base AS (
+SELECT
+SrcFileName,
+json_data.value:id::STRING AS main_id,
+json_data.value:serialNumber::STRING AS serialNumber,
+json_data.value:occurrence AS occurrence,
+json_data.value:followUp AS followUp,
+json_data.value:actions AS actions,
+json_data.value:claims AS claims,
+json_data.value:riskAssessment AS riskAssessment,
+json_data.value:organization AS organization,
+json_data.value:investigation AS investigation,
+json_data.value:isGdprRestricted::BOOLEAN AS isGdprRestricted,
+json_data.value:isGgprAnonymized::BOOLEAN AS isGgprAnonymized,
+json_data.value:updatedDateTime::string as updatedDateTime 
+FROM {{ref('raw_stg_tia_json_row_new')}},
+LATERAL FLATTEN(input => ORIG_STRING:data) AS json_data
+)
+
+--Flattening all the occurences in this CTE to get the key ,value pair for each attributes inside all occurences in JSON file .
+,occurrence_flat AS (
+SELECT
+main_id,
+occurrence:id::STRING AS Occurrence_Id,
+occurrence:type::STRING AS Occurrence_Type,
+occurrence:links.view::STRING AS Occurrence_Link_View,
+occurrence:title::STRING AS Occurrence_Title,
+occurrence:serialNumber::STRING AS Occurrence_SerialNumber,
+occurrence:reportedDateTime::STRING AS Occurrence_Reported_Date_Time,
+occurrence:occurrenceDate::STRING AS Ocurrence_Date,
+occurrence:occurrenceTime::STRING AS Ocurrence_Time,
+occurrence:completedDate::STRING AS Occurrence_CompletedDate,
+occurrence:unit.id::STRING AS Unit_Id,
+occurrence:unit.name::STRING AS Unit_Name,
+occurrence:unit.externalId::STRING AS Unit_externalId,
+occurrence:ohsRepresentative.name::STRING AS Ohs_Rep_Name,
+occurrence:ohsRepresentative.externalId::STRING AS Ohs_Rep_ExternalID,
+occurrence:responsible.name::STRING AS Responsible_Name,
+occurrence:responsible.externalId::STRING AS Responsible_ExternalId,
+occurrence:operation.id::string AS Operation_Id,
+occurrence:operation.description::string AS Operation_Description,
+occurrence:divergence.id::string AS Divergence_Id,
+occurrence:divergence.description::string AS Divergence_Description,
+occurrence:earthLevel::boolean AS Occurence_EarthLevel,
+occurrence:location.id::STRING AS Location_ID,
+occurrence:location.description::STRING AS Location_Description,
+occurrence:risk.id::STRING AS Risk_Id,
+occurrence:risk.description::STRING AS Risk_Description,
+occurrence:illness.id::STRING AS Illness_Id,
+occurrence:illness.description::STRING AS Illness_Description,
+occurrence:activity.id::STRING AS Activity_Id,
+occurrence:activity.description::STRING AS Activity_Description,
+occurrence:medicallyTreated.id::STRING AS MedicallyTreated_Id,
+occurrence:medicallyTreated.description::STRING AS MedicallyTreated_Description,
+occurrence:status.id::STRING AS Status_Id,
+occurrence:status.description::STRING AS Status_Description,
+occurrence:occurrenceCategory.id::STRING AS OccurrenceCategory_ID,
+occurrence:occurrenceCategory.description::STRING AS OccurrenceCategory_Description,
+occurrence:objectInvolvedIdentifier::STRING AS Occurrence_objectInvolvedIdentifier,
+occurrence:objectInvolvedOther::STRING AS Occurrence_objectInvolvedOther,
+occurrence:sickLeave.id::STRING AS SickLeave_Id,
+occurrence:sickLeave.description::STRING AS SickLeave_Description,
+occurrence:estimatedSickLeave.id::STRING AS EstimatedSickLeave_Id,
+occurrence:estimatedSickLeave.description::STRING AS EstimatedSickLeave_description,
+occurrence:source.id::STRING AS Source_Id,
+occurrence:source.description::STRING AS Source_Description,
+occurrence:externalLocation::string AS Occurence_ExternalLocation,
+occurrence:observedPerson::string AS Occurence_Observed_Person,
+occurrence:position.latitude::FLOAT AS Position_Latitude,
+occurrence:position.longitude::FLOAT AS Position_Longitude,
+---Occurence outer fileds ----
+occurrence:restrictedAccess::boolean AS Occurrence_RestrictedAccess, 
+occurrence:description::string AS Occurrence_Description,
+occurrence:behaviour::string AS Occurrence_Behaviour,
+occurrence:cause::string AS Occurrence_Cause,
+occurrence:actionProposal::string AS Occurrence_ActionProposal,
+occurrence:actualSickDays::int AS Occurrence_ActualSickDays,
+occurrence:isLostTimeInjury::boolean AS Occurrence_IsLostTimeInjury,
+occurrence:isPermanentJobTransfer::boolean AS Occurrence_IsPermanentJobTransfer,
+occurrence:lostTimeInjuryReason::string AS Occurrence_LostTimeInjuryReason,
+occurrence:jobTransferOrRestriction::int AS Occurrence_JobTransferOrRestriction,
+--Extracting the Contact field --
+occurrence:contact.searchTag::string AS Contact_SearchTag,
+occurrence:contact.name::string AS Contact_Name,
+occurrence:contact.email::string AS Contact_Email,  --- Need tp confirm to include in PII data or not
+occurrence:contact.employmentType.id::string AS Contact_EmploymentType_ID,
+occurrence:contact.employmentType.description::string AS Contact_EmploymentType_Description,
+occurrence:contact.unit.id::string AS Contact_Unit_ID,
+occurrence:contact.unit.externalId::string AS Contact_Unit_ExternalId,
+occurrence:contact.unit.name::string AS Contact_Unit_Name,
+----Filetring the PII data in API response -----------
+occurrence:subject.searchTag::string AS Subject_SearchTag,
+ -- json_data.value:occurrence.subject.personalIdentityNumber::string AS Subject_personalIdentityNumber, (Commenting PII data)
+occurrence:subject.name::string AS Subject_Name,
+occurrence:subject.yearsOfExperience::int AS Subject_YearsOfExperience,    
+ -- json_data.value:occurrence.subject.cellPhone::int AS Subject_cellPhone,(Commenting PII data)
+occurrence:subject.age::int AS Subject_Age,
+occurrence:subject.gender.id::string AS Subject_Gender_ID,
+occurrence:subject.gender.description::string AS Subject_Gender_Description,
+occurrence:subject.occupation.id::string AS Subject_Occupation_ID,
+occurrence:subject.occupation.description::string AS Subject_Occupation_Description,
+occurrence:subject.workingHours.id::string AS Subject_WorkingHours_ID,
+occurrence:subject.workingHours.description::string AS Subject_WorkingHours_description,
+occurrence:subject.employmentType.id::string AS Subject_EmploymentType_ID,
+occurrence:subject.employmentType.description::string AS Subject_EmploymentType_description,
+occurrence:subject.unit.id::string AS Subject_Unit_ID,
+occurrence:subject.unit.name::string AS Subject_Unit_Name,
+occurrence:subject.isOfficial::string AS Subject_isOfficial,
+occurrence:victimizationSelfPerceived::boolean AS Occurence_victimizationSelfPerceived,
+occurrence:safetyObservation.id::string AS Occurence_SafetyObservation_ID,
+occurrence:safetyObservation.description::string AS Occurence_SafetyObservation_Description,
+occurrence:recoveryDate::string AS Occurence_Recovery_Date,
+occurrence:dateOfDeath::string AS Occurence_DateOfDeath,
+occurrence:externalId::string AS Occurence_External_ID,
+occurrence:imported::boolean AS Occurence_Imported
+FROM CTE_base,
+LATERAL FLATTEN(input => occurrence) 
+)
+
+--Flattening the followup in this CTE separately to get the each key ,value pair for each attributes inside all occurences in JSON file .
+,followup_flat AS (
+SELECT
+ main_id,
+ followUp:responsible.name::STRING AS FollowUp_Responsible_Name,
+ followUp:responsible.externalId::STRING AS FollowUp_Responsible_ExternalId,
+ followUp:completed::BOOLEAN AS FollowUp_Completed,
+ followUp:completedDate::STRING AS FollowUp_CompletedDate,
+ followUp:estimatedCompletedDate::STRING AS FollowUp_EstimatedCompletedDate,
+ followUp:actionsHadDesiredEffect::BOOLEAN AS FollowUp_ActionsHadDesiredEffect,
+ followUp:comment::STRING AS FollowUp_Comment,
+ followUp:noInvestigation::BOOLEAN AS FollowUp_NoInvestigation,
+ followUp:noInvestigationReason::STRING AS FollowUp_NoInvestigationReason,
+ followUp:noAction::BOOLEAN AS FollowUp_NoAction,
+ followUp:noActionReason::STRING AS FollowUp_NoActionReason,
+ followUp:ohsResponsible.name::STRING AS FollowUp_ohsresponsible_Name,
+ followUp:ohsResponsible.externalId::STRING AS FollowUp_ohsresponsible_ExternalId,
+ followUp:ohsApproved::BOOLEAN AS Followup_ohsApproved,
+ followUp:ohsComment::STRING AS FollowUp_ohsComment
+FROM CTE_base,
+LATERAL FLATTEN(input => followUp)
+) 
+
+--select * from followup_flat; 
+
+--Flattening the actions (Array) in this CTE separately to get the each key ,value pair for each attributes inside all occurences in JSON file .
+,actions_flat AS (
+SELECT
+main_id,
+flattened_actions.value:id::string AS Actions_Id,
+flattened_actions.value:number::int AS Actions_Number,
+flattened_actions.value:title::string AS Actions_Title,
+flattened_actions.value:description::string AS Actions_Description,
+flattened_actions.value:workOrderNumber::string AS Actions_WorkOrderNumber,
+flattened_actions.value:owner.name::string AS Actions_Owner_Name,
+flattened_actions.value:owner.externalId::string AS Actions_Owner_ExternalId,
+flattened_actions.value:type::string AS Actions_Type,
+flattened_actions.value:ownerOther::string AS Actions_OwnerOther, 
+flattened_actions.value:isCompleted::boolean AS Actions_isCompleted,
+flattened_actions.value:completedDate::string AS Actions_CompletedDate,
+flattened_actions.value:estimatedCompletedDate::string AS Actions_EstimatedCompletedDate,
+flattened_actions.value:step.id::string AS Actions_Step_ID,
+flattened_actions.value:step.description::string AS Actions_Step_description
+FROM CTE_base,
+LATERAL FLATTEN(input => actions) AS flattened_actions
+)
+
+--Flattening the Organization in this CTE separately to get the each key ,value pair for each attributes outside all occurences in JSON file .
+,organization_flat AS (
+SELECT
+main_id,
+organization:id::STRING AS Organization_id,
+organization:name::STRING AS Organization_name
+FROM CTE_base,
+LATERAL FLATTEN(input => organization)
+)
+
+,claims_flat AS (
+SELECT
+main_id,
+claims:tfa::boolean as Claims_tfa,
+claims:fk::boolean as Claims_fk
+FROM CTE_base,
+LATERAL FLATTEN(input => claims)
+ )
+
+--Flattening the RiskAssessment in this CTE separately to get the each key ,value pair for each attributes inside all occurences in JSON file .
+,riskAssessment_flat AS (
+SELECT
+main_id,
+riskAssessment:before.probability::int AS RiskAssessment_Before_Probability,
+riskAssessment:before.consequence::int AS RiskAssessment_Before_Consequence,
+riskAssessment:after.probability::int AS RiskAssessment_After_Probability,
+riskAssessment:after.consequence::int AS RiskAssessment_After_Consequence,
+riskAssessment:isRiskAfterActionEliminated::boolean AS RiskAssessment_IsRiskAfterActionEliminated
+FROM CTE_base,
+LATERAL FLATTEN(input => riskAssessment)
+         
+)
+
+--Flattening the Investigation in this CTE separately to get the each key ,value pair for each attributes inside all occurences in JSON file .
+,investigation_flat AS (
+SELECT
+main_id,
+investigation:header::string AS Investigation_Header,
+investigation:description::string AS Investigation_Description,
+investigation:isCompleted::boolean AS Investigation_isCompleted,
+investigation:startedDate::string AS Investigation_StartedDate,
+investigation:estimatedCompletedDate::string AS Investigation_Estimated_Completed_Date,
+investigation:completedDate::string AS Investigation_Completed_Date,
+investigation:investigator.name::string AS Investigation_Investigator_Name,
+investigation:investigator.externalId::string AS Investigation_Investigator_externalId,
+investigation:investigatorOther::string AS Investigation_investigatorOther,
+investigation:handledByOhsCommittee::boolean AS Investigation_handledByOhsCommittee,
+investigation:handledByOhsCommitteeDate::string AS Investigation_handledByOhsCommitteeDate,
+--Flattening array under investigation - Causes 
+/*invst_causes.value:contributingFactor:id::string AS Investigation_Causes_ContributingFactor_ID,
+invst_causes.value:contributingFactor:description::string AS Investigation_Causes_ContributingFactor_desc,
+invst_causes.value:isMainCause::boolean AS Investigation_Causes_IsMainCause,
+invst_causes.value:description::string AS Investigation_Causes_description*/
+--invst_barrier.value:specification:id::string AS Investigation_Barrier_Specification_ID
+
+FROM CTE_base,
+LATERAL FLATTEN(input => investigation)
+--LATERAL FLATTEN(input => investigation:causes) AS invst_causes
+--LATERAL FLATTEN(input => investigation:barrier) AS invst_barrier, 
+--(Checking to flatten Barrier array as per investigation table structure but in json file we don't have barrier field coming inside investigator)
+)
+
+--select * from investigation_flat;         
+
+--Flattening the Investigation cause Array  in this CTE separately to retain all ivestigation header data ..to get the each key ,value pair for each attributes inside all occurences in JSON file .
+,investigation_causes_flat AS (
+SELECT
+main_id,
+--Flattening array under investigation - Causes 
+invst_causes.value:contributingFactor:id::string AS Investigation_Causes_ContributingFactor_ID,
+invst_causes.value:contributingFactor:description::string AS Investigation_Causes_ContributingFactor_desc,
+invst_causes.value:isMainCause::boolean AS Investigation_Causes_IsMainCause,
+invst_causes.value:description::string AS Investigation_Causes_description
+--invst_barrier.value:specification:id::string AS Investigation_Barrier_Specification_ID
+FROM CTE_base,
+LATERAL FLATTEN(input => investigation) investigation,
+LATERAL FLATTEN(input => investigation:causes) AS invst_causes
+--LATERAL FLATTEN(input => investigation:barrier) AS invst_barrier, (Checking to flatten Barrier array as per investigation table structure but in json file we don't have barrier field coming inside investigator)
+)
+
+--Flattening the Investigation Participants Array  in this CTE separately to retain all ivestigation header data ..to get the each key ,value pair for each attributes inside all occurences in JSON file .
+,investigation_participants_flat AS (
+SELECT
+main_id,
+--Flattening array under investigation - Causes 
+invst_participants.value:name::string AS Investigation_Participant_Name,
+invst_participants.value:externalId::string AS Investigation_Participant_External_ID
+--invst_barrier.value:specification:id::string AS Investigation_Barrier_Specification_ID
+FROM CTE_base,
+LATERAL FLATTEN(input => investigation) investigation,
+LATERAL FLATTEN(input => investigation:participants) AS invst_participants
+--LATERAL FLATTEN(input => investigation:barrier) AS invst_barrier, (Checking to flatten Barrier array as per investigation table structure but in json file we don't have barrier field coming inside investigator)
+)
+
+--Flattening the Investigation barrier Array  in this CTE separately to retain all ivestigation header data ..to get the each key ,value pair for each attributes inside all occurences in JSON file .
+,investigation_barrier_flat AS (
+SELECT
+main_id,
+--Flattening array under investigation - Barrier 
+invst_barrier.value:specification:id::string AS Investigation_Barrier_Specification_ID,
+invst_barrier.value:specification:id::string AS Investigation_Barrier_Specification_Description,
+invst_barrier.value:type:id::string AS Investigation_Barrier_Type_ID,
+invst_barrier.value:type:description::string AS Investigation_Barrier_Type_Description,
+invst_barrier.value:description::string AS Investigation_Barrier_Description
+FROM CTE_base,
+LATERAL FLATTEN(input => investigation) investigation,
+LATERAL FLATTEN(input => investigation:barrier) AS invst_barrier-- (Checking to flatten Barrier array as per investigation table structure but in json file we don't have barrier field coming inside investigator)
+)
+
+--Flattening the ObjectedInvolved Array  (Inside occurence) in this CTE separately at the last to Full Json data and  key ,value pair for each attributes inside all occurences in JSON file .
+,object_involved_flat AS (
+SELECT
+main_id,
+flattened_objects.value:id::STRING AS object_involved_id,
+flattened_objects.value:description::STRING AS object_involved_description
+FROM CTE_base,
+LATERAL FLATTEN(input =>occurrence),
+LATERAL FLATTEN(input => occurrence:objectInvolved) AS flattened_objects
+)  
+
+--Flattening the Fire (Nested-Level Array) in this CTE separately to get the each key ,value pair for each attributes inside all occurences in JSON file .
+,fire_flat AS (
+SELECT
+main_id,
+occurrence:fire:object:type:id::string AS Fire_Object_Type_ID,
+occurrence:fire:object:type:description::string AS Fire_Object_Type_Description,
+occurrence:fire:object:specification:id::string AS Fire_Object_Specification_Id,
+occurrence:fire:object:specification:description::string AS Fire_Object_Specification_Description,
+occurrence:fire:object:product::string AS Fire_Object_Product,
+occurrence:fire:object:age::int AS Fire_Object_Age,
+occurrence:fire:object:inspected::boolean AS Fire_Object_Inspected,
+occurrence:fire:object:inspectedDate::string AS Fire_Object_Inspected_Date,
+occurrence:fire:object:other::string AS Fire_Object_Other,
+occurrence:fire:reason:id::string AS Fire_Reason_Id,
+occurrence:fire:reason:description::string AS Fire_Reason_Description,
+occurrence:fire:reasonSpecification:id::string AS Fire_Reason_Specification_Id,
+occurrence:fire:reasonSpecification:description::string AS Fire_Reason_Specification_Description,
+occurrence:fire:detected:id::string AS Fire_Detected_Id,
+occurrence:fire:detected:description::string AS Fire_Detected_Description,
+--Flattening Nested array rescue service 
+rescue_service.value:id::string AS Fire_Rescue_Service_Id,
+rescue_service.value:description::string AS Fire_Rescue_Service_Description,
+--Flattening Nested array used material
+used_material.value:id::string AS Fire_Used_Material_Id,
+used_material.value:description::string AS Fire_Used_Material_Description,
+--Flattening Nested array usedExtinguisherMaterial
+extinguisher_material.value:id::string AS Fire_Used_Extinguisher_Material_Id,
+extinguisher_material.value:description::string AS Fire_Used_Extinguisher_Material_Description,
+--Extracting the fire field directly
+occurrence:fire:sprinkler:id::string AS Fire_Sprinkler_Id,
+occurrence:fire:sprinkler:description::string AS Fire_Sprinkler_Description,
+occurrence:fire:evacuation:id::string AS Fire_Evacuation_ID,
+occurrence:fire:evacuation:description::string AS Fire_Evacuation_Description,
+occurrence:fire:rescueRoom:id::string AS Fire_Rescue_Room_ID,
+occurrence:fire:rescueRoom:description::string AS Fire_Rescue_Room_Description,
+occurrence:fire:class:id::string AS Fire_Class_ID,
+occurrence:fire:class:description::string AS Fire_Class_Description,
+occurrence:fire:rescueRoomNumberOfPeople::int AS Fire_Rescue_Room_Number_Of_People,
+occurrence:fire:evacuationNumberOfPeople::int AS Fire_Evacuation_Number_Of_People,
+occurrence:fire:personalInjury::BOOLEAN AS Fire_Personal_Injury,
+occurrence:fire:numberOfInjured::int AS Fire_Number_Of_Injured,
+occurrence:fire:costsForDamagesThroughLossOfProduction::int AS Fire_Costs_For_Damages_Through_Loss_Of_Production,
+occurrence:fire:costsForDamagesToSite::int AS Fire_Costs_For_Damages_To_Site,
+occurrence:fire:reasonOther::STRING AS Fire_Reason_Other 
+FROM CTE_base,
+LATERAL FLATTEN(input => occurrence),
+LATERAL FLATTEN(input => occurrence:fire:rescueService) AS rescue_service,
+LATERAL FLATTEN(input => occurrence:fire:usedMaterial) AS used_material,
+LATERAL FLATTEN(input => occurrence:fire:usedExtinguisherMaterial) AS extinguisher_material
+)  
+
+--Flattening the injuredBodyPart Array  (Inside occurence) in this CTE separately at the last to Full Json data and  key ,value pair for each attributes inside all occurences in JSON file .
+,InjuredBodyPart_flat AS (
+SELECT
+main_id,
+flattened_injuredBodyPart.value:id::STRING AS Injured_BodyPart_ID,
+flattened_injuredBodyPart.value:description::STRING AS Injured_BodyPart_Description
+FROM CTE_base,
+LATERAL FLATTEN(input =>occurrence),
+LATERAL FLATTEN(input => occurrence:injuredBodyPart) AS flattened_injuredBodyPart
+)  
+
+--Flattening the injuredType Array  (Inside occurence) in this CTE separately at the last to Full Json data and  key ,value pair for each attributes inside all occurences in JSON file .
+,InjuryType_flat AS (
+SELECT
+main_id,
+flattened_injuryType.value:id::STRING AS Injury_Type_ID,
+flattened_injuryType.value:description::STRING AS Injury_Type_Description
+FROM CTE_base,
+LATERAL FLATTEN(input =>occurrence),
+LATERAL FLATTEN(input => occurrence:injuryType) AS flattened_injuryType
+)  
+
+,Illness_cause_flat AS (
+SELECT
+main_id,
+flattened_illnessCause.value:id::STRING AS Illness_Cause_ID,
+flattened_illnessCause.value:description::STRING AS Illness_Cause_Description
+FROM CTE_base,
+LATERAL FLATTEN(input =>occurrence),
+LATERAL FLATTEN(input => occurrence:illnessCause) AS flattened_illnessCause
+)
+
+
+SELECT distinct
+b.SrcFileName, 
+b.main_id,
+b.serialNumber,
+o.occurrence_id,
+o.occurrence_type,
+o.occurrence_link_view,
+o.occurrence_title,
+o.Occurrence_Reported_Date_Time,
+o.Ocurrence_Date,
+o.Ocurrence_Time,
+o.occurrence_completedDate,
+o.unit_id,
+o.unit_name,
+o.Unit_externalId,
+o.Ohs_Rep_Name,
+o.Ohs_Rep_ExternalID,
+o.responsible_name,
+o.responsible_externalId,
+o.Operation_Id,
+o.Operation_Description,
+o.Divergence_Id,
+o.Divergence_Description,
+o.Occurence_EarthLevel,
+o.Location_ID,
+o.location_description,
+o.risk_id,
+o.risk_description,
+o.Illness_Id,
+o.Illness_Description,
+--illness cause object
+illf.Illness_Cause_ID,
+illf.Illness_Cause_Description,
+o.activity_id,
+o.activity_description,
+o.MedicallyTreated_Id,
+o.MedicallyTreated_Description,
+o.status_id,
+o.status_description,
+o.OccurrenceCategory_ID,
+o.OccurrenceCategory_Description,
+o.Occurrence_objectInvolvedIdentifier,
+o.Occurrence_objectInvolvedOther,
+o.SickLeave_Id,
+o.SickLeave_Description,
+o.EstimatedSickLeave_Id,
+o.EstimatedSickLeave_description,
+o.source_id,
+o.source_description,
+o.Occurence_ExternalLocation,
+o.Occurence_Observed_Person,
+o.Position_Latitude,
+o.Position_Longitude,
+o.Occurrence_RestrictedAccess,
+o.Occurrence_Description,
+o.Occurrence_Behaviour,
+o.Occurrence_Cause,
+o.Occurrence_ActionProposal,
+o.Occurrence_ActualSickDays,
+o.Occurrence_IsLostTimeInjury,
+o.Occurrence_IsPermanentJobTransfer,
+o.Occurrence_LostTimeInjuryReason,
+o.Occurrence_JobTransferOrRestriction,
+o.Contact_Name,
+o.Contact_Email, --Need to confirm to include or not as it contain personal information
+o.Contact_EmploymentType_ID,
+o.Contact_EmploymentType_Description,
+o.Contact_Unit_ID,
+o.Contact_Unit_ExternalId,
+o.Subject_SearchTag,
+o.Subject_Name,
+o.Subject_YearsOfExperience,
+o.Subject_Age,
+o.Subject_Gender_ID,
+o.Subject_Gender_Description,
+o.Subject_Occupation_ID,
+o.Subject_Occupation_Description,
+o.Subject_WorkingHours_ID,
+o.Subject_WorkingHours_description,
+o.Subject_EmploymentType_ID,
+o.Subject_EmploymentType_description,
+o.Subject_Unit_ID,
+o.Subject_Unit_Name,
+o.Subject_isOfficial,
+o.Occurence_victimizationSelfPerceived,
+o.Occurence_SafetyObservation_ID,
+o.Occurence_SafetyObservation_Description,
+o.Occurence_Recovery_Date,
+o.Occurence_DateOfDeath,
+o.Occurence_External_ID,
+o.Occurence_Imported,
+f.FollowUp_Responsible_Name,
+f.FollowUp_Responsible_ExternalId,
+f.FollowUp_Completed,
+f.FollowUp_CompletedDate,
+f.FollowUp_EstimatedCompletedDate,
+f.FollowUp_ActionsHadDesiredEffect,
+f.FollowUp_Comment,
+f.FollowUp_NoInvestigation,
+f.FollowUp_NoInvestigationReason,
+f.FollowUp_NoAction,
+f.FollowUp_NoActionReason,
+f.FollowUp_ohsresponsible_Name,
+f.FollowUp_ohsresponsible_ExternalId,
+f.Followup_ohsApproved,
+f.FollowUp_ohsComment,
+a.Actions_Id,
+a.Actions_Number,
+a.Actions_Title,
+a.Actions_Description,
+a.Actions_WorkOrderNumber,
+a.Actions_Owner_Name,
+a.Actions_Owner_ExternalId,
+a.Actions_Type,
+a.Actions_OwnerOther,
+a.Actions_isCompleted,
+a.Actions_CompletedDate,
+a.Actions_EstimatedCompletedDate,
+a.Actions_Step_ID,
+a.Actions_Step_description,
+--oi.object_involved_id,
+--oi.object_involved_description,
+og.Organization_Id,
+og.Organization_Name,
+cf.Claims_tfa,
+cf.Claims_fk,
+rf.RiskAssessment_Before_Probability,
+rf.RiskAssessment_Before_Consequence,
+rf.RiskAssessment_After_Probability,
+rf.RiskAssessment_After_Consequence,
+rf.RiskAssessment_IsRiskAfterActionEliminated,
+---Investigation Fields 
+invf.Investigation_Header,
+invf.Investigation_Description,
+invf.Investigation_isCompleted,
+invf.Investigation_StartedDate,
+invf.Investigation_Estimated_Completed_Date,
+invf.Investigation_Completed_Date,
+invf.Investigation_Investigator_Name,
+invf.Investigation_Investigator_externalId,
+invf.Investigation_investigatorOther,
+invf.Investigation_handledByOhsCommittee,
+invf.Investigation_handledByOhsCommitteeDate,
+--Investigation Causes field -----
+invcf.Investigation_Causes_ContributingFactor_ID,
+invcf.Investigation_Causes_ContributingFactor_desc,
+invcf.Investigation_Causes_IsMainCause,
+invcf.Investigation_Causes_description,
+--Investigation Participant field -----
+invpf.Investigation_Participant_Name,
+invpf.Investigation_Participant_External_ID,
+--Investigation Barrier field -----
+invbf.Investigation_Barrier_Specification_ID,
+invbf.Investigation_Barrier_Specification_Description,
+invbf.Investigation_Barrier_Type_ID,
+invbf.Investigation_Barrier_Type_Description,
+invbf.Investigation_Barrier_Description,
+--Object Involved field ----
+oi.object_involved_id,
+oi.object_involved_description,
+injf.Injured_BodyPart_ID,
+injf.Injured_BodyPart_Description,
+injtf.Injury_Type_ID,
+injtf.Injury_Type_Description,
+--Fire objects 
+ff.Fire_Object_Type_ID,
+ff.Fire_Object_Type_Description,
+ff.Fire_Object_Specification_Id,
+ff.Fire_Object_Specification_Description,
+ff.Fire_Object_Product,
+ff.Fire_Object_Age,
+ff.Fire_Object_Inspected,
+ff.Fire_Object_Inspected_Date,
+ff.Fire_Object_Other,
+ff.Fire_Reason_Id,
+ff.Fire_Reason_Description,
+ff.Fire_Reason_Specification_Id,
+ff.Fire_Reason_Specification_Description,
+ff.Fire_Detected_Id,
+ff.Fire_Detected_Description,
+ff.Fire_Rescue_Service_Id,
+ff.Fire_Rescue_Service_Description,
+ff.Fire_Used_Material_Id,
+ff.Fire_Used_Material_Description,
+ff.Fire_Used_Extinguisher_Material_Id,
+ff.Fire_Used_Extinguisher_Material_Description,
+ff.Fire_Sprinkler_Id,
+ff.Fire_Sprinkler_Description,
+ff.Fire_Evacuation_ID,
+ff.Fire_Evacuation_Description,
+ff.Fire_Rescue_Room_ID,
+ff.Fire_Rescue_Room_Description,
+ff.Fire_Class_ID,
+ff.Fire_Class_Description,
+ff.Fire_Rescue_Room_Number_Of_People,
+ff.Fire_Evacuation_Number_Of_People,
+ff.Fire_Personal_Injury,
+ff.Fire_Number_Of_Injured,
+ff.Fire_Costs_For_Damages_Through_Loss_Of_Production,
+ff.Fire_Costs_For_Damages_To_Site,
+ff.Fire_Reason_Other,
+b.isGdprRestricted,
+b.isGgprAnonymized,
+b.updatedDateTime,
+current_timestamp() as Loadtime
+FROM CTE_base b
+LEFT JOIN occurrence_flat o ON b.main_id = o.main_id
+LEFT JOIN followup_flat f ON b.main_id = f.main_id
+LEFT JOIN actions_flat a ON b.main_id = a.main_id
+--LEFT JOIN object_involved_flat oi ON b.main_id = oi.main_id
+LEFT JOIN organization_flat og ON b.main_id = og.main_id
+LEFT JOIN claims_flat cf ON b.main_id =cf.main_id
+LEFT JOIN riskAssessment_flat rf ON b.main_id =rf.main_id
+LEFT JOIN investigation_flat invf ON b.main_id=invf.main_id
+LEFT JOIN investigation_causes_flat invcf ON b.main_id =invcf.main_id
+LEFT JOIN investigation_participants_flat invpf ON b.main_id =invpf.main_id
+LEFT JOIN investigation_barrier_flat invbf ON b.main_id =invbf.main_id
+LEFT JOIN object_involved_flat oi ON b.main_id = oi.main_id
+LEFT JOIN fire_flat ff ON b.main_id = ff.main_id
+LEFT JOIN InjuredBodyPart_flat injf ON b.main_id =injf.main_id
+LEFT JOIN InjuryType_flat injtf ON b.main_id=injtf.main_id
+LEFt JOIN Illness_cause_flat illf ON b.main_id=illf.main_id
+
+)
+
+{%  if is_incremental() %}
+
+select cte_final.* from cte_final
+    left join (select this.SrcFileName from {{this}} this ) this 
+    on cte_final.SrcFileName=this.SrcFileName 
+    where this.SrcFileName is null 
+
+
+{%  else  %}
+
+    select distinct * from cte_final 
+
+{%  endif %}
