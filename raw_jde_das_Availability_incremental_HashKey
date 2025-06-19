@@ -1,0 +1,108 @@
+This approach is used when we don't have any Unique Ley from source /Buisness unabke to provide so we take all column and concate to generate teh Hask Key 
+
+
+{{ config(materialized='incremental',unique_key='HashKey') }}
+
+WITH CTE_RAW AS (
+   select 
+	METADATA$FILENAME AS SrcFileName
+    ,SYSDATE() as __META_TIMESTAMP
+    ,SPLIT_PART(METADATA$FILENAME,'/',-1)||'~'||METADATA$FILE_LAST_MODIFIED AS UniqueFileID
+    ,ltrim(rtrim($1)) as "Branch Plant"
+    ,$2 as "Item Number"
+    ,$3 as "Description"
+    ,$4 as "Location"
+    ,$5 as "Lot Serial Number"
+    ,$6 as "Quantity On Hand"
+    ,$7 as "P S"
+    ,$8 as "Class Code"
+    ,$9 as "Srch: Search Text"
+    ,$10 as "Stocking Type"
+    ,concat("Item Number",'-',COALESCE("Location",'99'),'-',COALESCE("Lot Serial Number",'99'),'-',ltrim(rtrim("Branch Plant"))) AS UNIQUE_KEY
+    ,hash(concat(nvl($1,' '),nvl($2,' '),nvl($3,' '),nvl($4,' '),nvl($5,' '),nvl($6,' '),nvl($7,' '),nvl($8,' '),nvl($9,' '),nvl($10,' '))) as HashKey
+
+FROM @HQV_MISC.MISC.AZURE_STAGE_DF_MANUFACTURING_{{fnGetEnvironmentName()}}/Availability_Test_New/Availability.csv
+(file_format => hqv_misc.misc.hqv_csv_df)
+
+)
+
+{%  if is_incremental() %}
+
+select CTE_RAW.* from CTE_RAW
+    left join (select this.UniqueFileID from {{this}} this ) this 
+    on CTE_RAW.UniqueFileID=this.UniqueFileID 
+    where this.UniqueFileID is null 
+
+
+{%  else  %}
+
+    select  * from CTE_RAW 
+
+{%  endif %}
+
+
+For full load it we load the data as it is in file
+
+For Incrmenal it checks the data based on key already exist then it update else it insert the data if there is no matching record based on key
+
+----------------------------------When u run the model behind the scene dbt run the below command
+
+merge into CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_jde_das_edge_availability_incremental_loadnew as DBT_INTERNAL_DEST
+        using CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_jde_das_edge_availability_incremental_loadnew__dbt_tmp as DBT_INTERNAL_SOURCE
+        on (
+                DBT_INTERNAL_SOURCE.HashKey = DBT_INTERNAL_DEST.HashKey
+            )
+
+    
+    when matched then update set
+        "SRCFILENAME" = DBT_INTERNAL_SOURCE."SRCFILENAME","__META_TIMESTAMP" = DBT_INTERNAL_SOURCE."__META_TIMESTAMP","UNIQUEFILEID" = DBT_INTERNAL_SOURCE."UNIQUEFILEID","Branch Plant" = DBT_INTERNAL_SOURCE."Branch Plant","Item Number" = DBT_INTERNAL_SOURCE."Item Number","Description" = DBT_INTERNAL_SOURCE."Description","Location" = DBT_INTERNAL_SOURCE."Location","Lot Serial Number" = DBT_INTERNAL_SOURCE."Lot Serial Number","Quantity On Hand" = DBT_INTERNAL_SOURCE."Quantity On Hand","P S" = DBT_INTERNAL_SOURCE."P S","Class Code" = DBT_INTERNAL_SOURCE."Class Code","Srch: Search Text" = DBT_INTERNAL_SOURCE."Srch: Search Text","Stocking Type" = DBT_INTERNAL_SOURCE."Stocking Type","UNIQUE_KEY" = DBT_INTERNAL_SOURCE."UNIQUE_KEY","HASHKEY" = DBT_INTERNAL_SOURCE."HASHKEY"
+    
+
+    when not matched then insert
+        ("SRCFILENAME", "__META_TIMESTAMP", "UNIQUEFILEID", "Branch Plant", "Item Number", "Description", "Location", "Lot Serial Number", "Quantity On Hand", "P S", "Class Code", "Srch: Search Text", "Stocking Type", "UNIQUE_KEY", "HASHKEY")
+    values
+        ("SRCFILENAME", "__META_TIMESTAMP", "UNIQUEFILEID", "Branch Plant", "Item Number", "Description", "Location", "Lot Serial Number", "Quantity On Hand", "P S", "Class Code", "Srch: Search Text", "Stocking Type", "UNIQUE_KEY", "HASHKEY")
+
+;
+
+
+
+create or replace  temporary view CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_jde_das_edge_availability_incremental_loadnew__dbt_tmp
+  
+   as (
+    
+
+WITH CTE_RAW AS (
+   select 
+	METADATA$FILENAME AS SrcFileName
+    ,SYSDATE() as __META_TIMESTAMP
+    ,SPLIT_PART(METADATA$FILENAME,'/',-1)||'~'||METADATA$FILE_LAST_MODIFIED AS UniqueFileID
+    ,ltrim(rtrim($1)) as "Branch Plant"
+    ,$2 as "Item Number"
+    ,$3 as "Description"
+    ,$4 as "Location"
+    ,$5 as "Lot Serial Number"
+    ,$6 as "Quantity On Hand"
+    ,$7 as "P S"
+    ,$8 as "Class Code"
+    ,$9 as "Srch: Search Text"
+    ,$10 as "Stocking Type"
+    ,concat("Item Number",'-',COALESCE("Location",'99'),'-',COALESCE("Lot Serial Number",'99'),'-',ltrim(rtrim("Branch Plant"))) AS UNIQUE_KEY
+    --,hash(concat(nvl($1,' '),nvl($2,' '),nvl($4,' '),nvl($5,' '))) as HashKey
+    ,hash(concat(nvl($1,' '),nvl($2,' '),nvl($3,' '),nvl($4,' '),nvl($5,' '),nvl($6,' '),nvl($7,' '),nvl($8,' '),nvl($9,' '),nvl($10,' '))) as HashKey
+
+FROM @HQV_MISC.MISC.AZURE_STAGE_DF_MANUFACTURING_DEV/Availability_Test_New/Availability.csv
+(file_format => hqv_misc.misc.hqv_csv_df)
+
+)
+
+
+
+select CTE_RAW.* from CTE_RAW
+    left join (select this.UniqueFileID from CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_jde_das_edge_availability_incremental_loadnew this ) this 
+    on CTE_RAW.UniqueFileID=this.UniqueFileID 
+    where this.UniqueFileID is null 
+
+
+
+  );
