@@ -1,0 +1,5 @@
+{% macro fnDateYearMonthDayNDaysBackYYYYMMDD(n) %}
+{% set d_new = modules.datetime.datetime.now()+modules.datetime.timedelta(days=-n) %}
+{%set _year = d_new.year %}
+{%set _month = d_new.month %}
+{%set _day = d_new.day%}{{_year}}{{'%02d' % _month}}{{'%02d' % _day}}{% endmacro %}
