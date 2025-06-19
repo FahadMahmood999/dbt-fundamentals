@@ -1,0 +1,99 @@
+--- Incremental load to only process file for Current Month + Previous Month based on time stamp
+
+Step 1:
+
+dbt run -m raw_medvind_incremental
+
+create or replace  table CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind_incremental
+         as
+        (
+select 
+METADATA$FILENAME
+,SYSDATE() as __META_TIMESTAMP
+,SUBSTR(METADATA$FILE_LAST_MODIFIED,1,7) AS __META_LAST_MODIFIED
+--,right(left(METADATA$FILENAME,67),38) AS __META_FILE_NAME
+,substr(METADATA$FILENAME,30,18) AS __META_FILE_NAME
+,to_date(right(left(METADATA$FILENAME,47),6),'YYYYMM') as __META_PARTITION_DATE
+,$1 AS "Datum"
+,$2 AS "Kst"
+,$3 AS "Order"
+,$4 AS "Ordertext"
+,$5 AS "Timmar"
+,$6 AS "Personalkatekori"
+,$7 AS "Planeringsgrupp"
+,$8 AS "N/F"
+,$9 AS "Orsak"
+,$10 AS "Planerade_Timmar"
+,$11 AS "Konto"
+FROM @HQV_MISC.MISC.AZURE_STAGE_ESB_V2_DEV/Manufacturing/Medvind_sweden/
+(file_format => hqv_misc.misc.hqv_medvind_csv, 
+pattern => '.*MvDataLager_202407_20240708_.*.csv|.*MvDataLager_202406_20240708_.*.csv')
+        );
+
+
+--------------------
+Step 2:
+
+dbt run -m raw_medvind_final
+
+create or replace temporary table CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind_final__dbt_tmp
+         as
+        (
+
+-- depends_on: CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind
+-- depends_on: CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind_incremental
+
+-- This method is using a sliding window approach without primary keys. Because of this duplicates can potentially exist is updates are done outside of the sliding window.
+
+SELECT 
+    *
+
+FROM CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind_incremental
+
+        );
+
+__META_FILE_NAME      
+MvDataLager_202406
+MvDataLager_202407
+
+Below File name will only be processed on daily load ----
+Manufacturing/Medvind_sweden/MvDataLager_202406_20240708_050033.csv
+Manufacturing/Medvind_sweden/MvDataLager_202407_20240708_050120.csv
+
+
+Step 3:
+
+--------------------------------------------Incremental Strategy = Delete+ insert -------------------
+
+delete from CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind_final
+            where (
+                __META_FILE_NAME) in (
+                select (__META_FILE_NAME)
+                from CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind_final__dbt_tmp
+            );
+			
+			
+			
+		
+Step 4:
+		
+insert into CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind_final ("METADATA$FILENAME", "__META_TIMESTAMP", "__META_LAST_MODIFIED", "__META_FILE_NAME", "__META_PARTITION_DATE", "Datum", "Kst", "Order", "Ordertext", "Timmar", "Personalkatekori", "Planeringsgrupp", "N/F", "Orsak", "Planerade_Timmar", "Konto")
+    (
+        select "METADATA$FILENAME", "__META_TIMESTAMP", "__META_LAST_MODIFIED", "__META_FILE_NAME", "__META_PARTITION_DATE", "Datum", "Kst", "Order", "Ordertext", "Timmar", "Personalkatekori", "Planeringsgrupp", "N/F", "Orsak", "Planerade_Timmar", "Konto"
+        from CLONE_ANALYTICS_DEV_FAHMAH.raw.raw_medvind_final__dbt_tmp
+    );
+	
+
+Final data in Medvind final table :
+
+MEtadata File_name:                                                                  
+
+
+Manufacturing/Medvind_sweden/MvDataLager_202407_20240708_050120.csv       -- latest file will only load                    
+Manufacturing/Medvind_sweden/MvDataLager_202406_20240708_050033.csv       --Latest file for previous month and current data will load
+Manufacturing/Medvind_sweden/MvDataLager_202403_20240627_142240.csv     --this will come from full load when RAW layer is loaded.
+Manufacturing/Medvind_sweden/MvDataLager_202401_20240627_142218.csv       --this will come from full load when RAW layer is loaded
+Manufacturing/Medvind_sweden/MvDataLager_202402_20240627_142229.csv     --this will come from full load when RAW layer is loaded
+Manufacturing/Medvind_sweden/MvDataLager_202404_20240627_142250.csv     --this will come from full load when RAW layer is loaded
+Manufacturing/Medvind_sweden/MvDataLager_202405_20240627_141729.csv          --this will come from full load when RAW layer is loaded
+
