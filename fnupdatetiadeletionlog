@@ -1,0 +1,60 @@
+{% macro createdellog(model) %}
+
+     create table if not exists {{ target.database }}.RAW.raw_tia_deletion_control 
+    (  ModelName                varchar(100),
+       loaded_max_date_src      varchar(100),
+       last_dbt_load_date       varchar(100),
+       last_extracted_from_api  varchar(100)    ) ;
+
+    merge into {{ target.database }}.RAW.raw_tia_deletion_control as target
+        using (select 
+                split_part('{{ model }}', '.', -1) as model_name, 
+                null as loaded_max_date_src, 
+                null as last_dbt_load_date,
+                null as last_extracted_from_api ) as source
+        on target.ModelName = source.model_name
+        when matched then 
+            update set 
+                target.loaded_max_date_src = source.loaded_max_date_src,
+                target.last_dbt_load_date = source.last_dbt_load_date,
+                target.last_extracted_from_api=source.last_extracted_from_api
+        when not matched then
+            insert (ModelName, loaded_max_date_src, last_dbt_load_date, last_extracted_from_api)
+            values (source.model_name, source.loaded_max_date_src, source.last_dbt_load_date, source.last_extracted_from_api);
+
+
+
+{% endmacro %}
+
+
+{% macro updatedellog(model) %}
+
+    {% set src_name = this.identifier | replace('raw_tia_occurence', 'raw_stg_tia_json') %}
+
+    {% set last_extracted_query %}
+        select max(LAST_MODIFIED) as last_modified
+        from {{ target.database }}.RAW.{{ src_name }}
+    {% endset %}
+
+
+    update {{ target.database }}.RAW.raw_tia_deletion_control
+    set loaded_max_date_src = (
+        select max(updatedDateTime)
+        from {{model}}
+        
+    ) 
+    ,last_dbt_load_date=current_timestamp() 
+    
+    where ModelName = split_part('{{model}}', '.', -1) ; 
+
+
+
+    update {{ target.database }}.RAW.raw_tia_deletion_control
+    set last_extracted_from_api =  (select max(LAST_MODIFIED) as last_modified from {{ target.database }}.RAW.{{ src_name }} )
+    
+    where ModelName = split_part('{{model}}', '.', -1) ; 
+
+    delete from {{ target.database }}.RAW.{{ src_name }};
+
+
+{% endmacro %}
