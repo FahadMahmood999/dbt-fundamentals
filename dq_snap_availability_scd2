@@ -1,0 +1,30 @@
+{% snapshot dq_snap_availability_scd2 %}
+
+    {{
+        config(
+           	target_schema = 'SNAPSHOT',
+		   	transient = false,
+			unique_key = 'TestID',
+        	      strategy = 'check',
+                  check_cols = ['ChangeCheck'],
+        )
+    }}
+	
+	SELECT "Branch Plant"
+    ,"Item Number"
+    ,"Description"
+    ,"Location"
+    ,"Lot Serial Number"
+    ,"Quantity On Hand"
+    ,"P S"
+    ,"Class Code"
+    ,"Srch: Search Text"
+    ,"Stocking Type"
+	,TestID
+	,HASH("Branch Plant","Item Number","Description","Location","Lot Serial Number","Quantity On Hand","P S","Class Code","Srch: Search Text","Stocking Type")
+	AS ChangeCheck
+	
+	FROM 	{{ ref('raw_jde_das_edge_hc_availability_Testing') }}
+
+{% endsnapshot %}
+	
