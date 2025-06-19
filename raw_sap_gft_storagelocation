@@ -1,0 +1,36 @@
+If ESB/Source team is sending daily full load file in our data lake the the DBT will pick only the lastest file based on modified date and load in sF.
+
+
+
+-- VAT Determination of Address from Plant and Storage Location 
+{{ config(tags=["VAT"]) }}
+
+
+with CTE_LATESTFILE AS (
+SELECT max(METADATA$FILE_LAST_MODIFIED) AS LatestFile
+FROM @HQV_MISC.MISC.AZURE_STAGE_ESB_{{fnEnvironmentNameESB()}}/SAP/FDW/GFT/Master_Data/
+(file_format => 'HQV_MISC.MISC.HQV_CSV_SAP_SEMICOL', pattern => '.*TWLAD_{{fnDateYearMonthDayNDaysBackYYYYMMDD(0)}}.*.csv|.*TWLAD_{{fnDateYearMonthDayNDaysBackYYYYMMDD(1)}}.*.csv|.*TWLAD_{{fnDateYearMonthDayNDaysBackYYYYMMDD(2)}}.*.csv')	   
+ 
+)
+
+,CTE_RAW as
+(
+SELECT
+'SAPGFT' as SRC_SYS_NAME
+,METADATA$FILENAME AS SrcFileName
+,$1 as WERKS
+,$2 as LGORT
+,$3 as LFDNR
+,$4 as ADRNR
+,hash(concat(nvl(WERKS,' '),nvl(LGORT,' '),nvl(LFDNR,' '))) as PKHASHKEY
+,METADATA$FILE_LAST_MODIFIED AS LastModifiedDate
+
+FROM @HQV_MISC.MISC.AZURE_STAGE_ESB_{{fnEnvironmentNameESB()}}/SAP/FDW/GFT/Master_Data/
+(file_format => 'HQV_MISC.MISC.HQV_CSV_SAP_SEMICOL', pattern => '.*TWLAD_{{fnDateYearMonthDayNDaysBackYYYYMMDD(0)}}.*.csv|.*TWLAD_{{fnDateYearMonthDayNDaysBackYYYYMMDD(1)}}.*.csv|.*TWLAD_{{fnDateYearMonthDayNDaysBackYYYYMMDD(2)}}.*.csv')	   
+ 
+)
+	 
+ 
+SELECT *
+FROM CTE_RAW
+WHERE LastModifiedDate = (SELECT LatestFile FROM CTE_LATESTFILE)
